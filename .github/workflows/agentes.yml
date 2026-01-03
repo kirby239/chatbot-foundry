@@ -1,0 +1,94 @@
+name: Microsoft AI Foundry Control
+
+on:
+  workflow_dispatch: # Esto permite la ejecución manual con formulario
+    inputs:
+      action_type:
+        description: '¿Qué quieres hacer?'
+        required: true
+        default: 'listar'
+        type: choice
+        options:
+          - crear
+          - listar
+          - preguntar
+      agent_name:
+        description: 'Nombre del agente (solo para crear)'
+        required: false
+      prompt_text:
+        description: 'Tu mensaje para el agente (solo para preguntar)'
+        required: false
+      agent_id:
+        description: 'ID del agente (solo para preguntar)'
+        required: false
+
+jobs:
+  ia-foundry-task:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar Dependencias
+        run: |
+          pip install azure-ai-projects azure-identity python-dotenv
+
+      - name: Login en Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Ejecutar Operación de IA
+        env:
+          # Estas variables deben estar en los "Secrets" de tu repo GitHub
+          AZURE_AI_FOUNDRY_ENDPOINT: ${{ secrets.AZURE_AI_FOUNDRY_ENDPOINT }}
+          MODEL_DEPLOYMENT_NAME: "gpt-4o" # Cambia esto por tu modelo
+        run: |
+          python - <<EOF
+          import os
+          from azure.ai.projects import AIProjectClient
+          from azure.identity import DefaultAzureCredential
+
+          # 1. Conexión
+          endpoint = os.getenv("AZURE_AI_FOUNDRY_ENDPOINT")
+          model_name = os.getenv("MODEL_DEPLOYMENT_NAME")
+          credential = DefaultAzureCredential()
+          client = AIProjectClient(endpoint=endpoint, credential=credential)
+
+          action = "${{ github.event.inputs.action_type }}"
+
+          # 2. Lógica según la elección del usuario
+          if action == "crear":
+              name = "${{ github.event.inputs.agent_name }}"
+              print(f"--- Creando Agente: {name} ---")
+              agent = client.agents.create_agent(model=model_name, name=name, instructions="Eres un asistente útil.")
+              print(f"EXITO: Agente creado con ID: {agent.id}")
+
+          elif action == "listar":
+              print("--- Listado de Agentes ---")
+              agents = client.agents.list_agents()
+              for a in agents.data:
+                  print(f"ID: {a.id} | Nombre: {a.name}")
+
+          elif action == "preguntar":
+              a_id = "${{ github.event.inputs.agent_id }}"
+              p_text = "${{ github.event.inputs.prompt_text }}"
+              print(f"--- Enviando Prompt a {a_id} ---")
+              
+              # Proceso de Thread + Run (lo que explicamos antes)
+              thread = client.agents.create_thread()
+              client.agents.create_message(thread_id=thread.id, role="user", content=p_text)
+              run = client.agents.create_and_poll_run(assistant_id=a_id, thread_id=thread.id)
+              
+              if run.status == "completed":
+                  messages = client.agents.list_messages(thread_id=thread.id)
+                  print(f"RESPUESTA: {messages.data[0].content[0].text.value}")
+              else:
+                  print(f"ERROR: El estado fue {run.status}")
+          EOF
