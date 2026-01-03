@@ -23,9 +23,8 @@ on:
         required: false
 
 jobs:
-  ia-foundry-task:
+  execute-api-action:
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
@@ -36,59 +35,37 @@ jobs:
           python-version: '3.10'
 
       - name: Instalar Dependencias
-        run: |
-          pip install azure-ai-projects azure-identity python-dotenv
+        run: pip install -r requirements.txt
 
-      - name: Login en Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Ejecutar Operación de IA
+      - name: Iniciar Backend FastAPI
         env:
-          # Estas variables deben estar en los "Secrets" de tu repo GitHub
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_AI_FOUNDRY_ENDPOINT: ${{ secrets.AZURE_AI_FOUNDRY_ENDPOINT }}
-          MODEL_DEPLOYMENT_NAME: "gpt-4o" # Cambia esto por tu modelo
+          MODEL_DEPLOYMENT_NAME: "gpt-4o-mini"
         run: |
-          python - <<EOF
-          import os
-          from azure.ai.projects import AIProjectClient
-          from azure.identity import DefaultAzureCredential
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
+          sleep 10 # Tiempo para que el backend conecte con Azure
 
-          # 1. Conexión
-          endpoint = os.getenv("AZURE_AI_FOUNDRY_ENDPOINT")
-          model_name = os.getenv("MODEL_DEPLOYMENT_NAME")
-          credential = DefaultAzureCredential()
-          client = AIProjectClient(endpoint=endpoint, credential=credential)
+      - name: Ejecutar Acción Seleccionada
+        run: |
+          ACTION="${{ github.event.inputs.action_type }}"
+          
+          if [ "$ACTION" == "crear" ]; then
+            echo "Creando agente: ${{ github.event.inputs.agent_name }}"
+            curl -s -X POST http://localhost:8000/agents \
+              -H "Content-Type: application/json" \
+              -d '{"name": "${{ github.event.inputs.agent_name }}", "instructions": "Eres un asistente útil"}' | jq .
 
-          action = "${{ github.event.inputs.action_type }}"
+          elif [ "$ACTION" == "listar" ]; then
+            echo "Listando agentes..."
+            curl -s http://localhost:8000/agents | jq .
 
-          # 2. Lógica según la elección del usuario
-          if action == "crear":
-              name = "${{ github.event.inputs.agent_name }}"
-              print(f"--- Creando Agente: {name} ---")
-              agent = client.agents.create_agent(model=model_name, name=name, instructions="Eres un asistente útil.")
-              print(f"EXITO: Agente creado con ID: {agent.id}")
-
-          elif action == "listar":
-              print("--- Listado de Agentes ---")
-              agents = client.agents.list_agents()
-              for a in agents.data:
-                  print(f"ID: {a.id} | Nombre: {a.name}")
-
-          elif action == "preguntar":
-              a_id = "${{ github.event.inputs.agent_id }}"
-              p_text = "${{ github.event.inputs.prompt_text }}"
-              print(f"--- Enviando Prompt a {a_id} ---")
-              
-              # Proceso de Thread + Run (lo que explicamos antes)
-              thread = client.agents.create_thread()
-              client.agents.create_message(thread_id=thread.id, role="user", content=p_text)
-              run = client.agents.create_and_poll_run(assistant_id=a_id, thread_id=thread.id)
-              
-              if run.status == "completed":
-                  messages = client.agents.list_messages(thread_id=thread.id)
-                  print(f"RESPUESTA: {messages.data[0].content[0].text.value}")
-              else:
-                  print(f"ERROR: El estado fue {run.status}")
-          EOF
+          elif [ "$ACTION" == "preguntar" ]; then
+            echo "Enviando prompt a: ${{ github.event.inputs.agent_id }}"
+            curl -s -X POST "http://localhost:8000/agents/${{ github.event.inputs.agent_id }}/prompt" \
+              -H "Content-Type: application/json" \
+              -d '{"prompt": "${{ github.event.inputs.prompt_text }}"}' | jq .
+          fi

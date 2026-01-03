@@ -4,3 +4,4 @@ azure-ai-projects
 azure-identity
 python-dotenv
 pydantic
+requests
