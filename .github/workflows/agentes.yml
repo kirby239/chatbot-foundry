@@ -60,7 +60,7 @@ jobs:
             echo "Creando agente: ${{ github.event.inputs.agent_name }}"
             curl -s -X POST http://localhost:8000/agents \
               -H "Content-Type: application/json" \
-              -d '{"name": "${{ github.event.inputs.agent_name }}", "instructions": ${{ github.event.inputs.instructions }} }' | jq .
+              -d '{"name": "${{ github.event.inputs.agent_name }}", "instructions": "${{ github.event.inputs.instructions }}" }' | jq .
 
           elif [ "$ACTION" == "listar" ]; then
             echo "Listando agentes..."
