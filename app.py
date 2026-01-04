@@ -47,29 +47,65 @@ async def list_agents():
 @app.post("/agents/{agent_id}/prompt", summary="Enviar mensaje a un agente")
 async def send_prompt(agent_id: str, req: PromptRequest):
     try:
-        thread = project_client.agents.create_thread()
+        # 1. Crear el hilo
+        thread = project_client.agents.threads.create()
+        print(f"Thread creado con ID: {thread.id}")
         
-        project_client.agents.create_message(
+        # 2. Crear el mensaje
+        message = project_client.agents.messages.create(
             thread_id=thread.id, 
             role="user", 
             content=req.prompt
         )
-        
-        run = project_client.agents.create_and_poll_run(
-            assistant_id=agent_id, 
-            thread_id=thread.id
+        # Nota: message suele ser un objeto, si falla como diccionario usa message.id
+        msg_id = message.id if hasattr(message, 'id') else message.get('id')
+        print(f"Mensaje creado con ID: {msg_id}")
+
+        # 3. Ejecutar y esperar
+        run = project_client.agents.runs.create_and_process(
+            thread_id=thread.id,
+            agent_id=agent_id
         )
         
-        if run.status == "completed":
-            # CORRECCIÓN 2: Se elimina .data para acceder a los mensajes
-            messages = project_client.agents.list_messages(thread_id=thread.id)
+        # En tu consola sale RunStatus.COMPLETED, lo comparamos correctamente
+        print(f"Ejecución iniciada con ID: {run.id}, estado actual: {run.status}")
+        
+        if run.status == "completed" or str(run.status).lower().endswith("completed"):
+            # 4. Listar mensajes
+            messages = project_client.agents.messages.list(thread_id=thread.id)
             
-            # Convertimos a lista para acceder al primer elemento [0]
-            msg_list = list(messages)
-            agent_response = msg_list[0].content[0].text.value
-            return {"agent_id": agent_id, "response": agent_response}
+            for msg in messages:
+                # Solo procesamos la respuesta del asistente
+                if msg.role == "assistant":
+                    print(f"Mensaje recibido con ID: {msg.id}")
+                    
+                    # CORRECCIÓN AQUÍ: Acceso correcto al valor del texto
+                    # El error decía que 'MessageTextContent' no tiene 'value' 
+                    # porque el valor está en msg.content[0].text.value
+                    try:
+                        last_text_value = msg.content[0].text.value
+                        print(f"Respuesta del agente: {last_text_value}")
+                        
+                        return {
+                            "agent_id": agent_id, 
+                            "thread_id": thread.id,
+                            "response": last_text_value
+                        }
+                    except (IndexError, AttributeError) as e:
+                        print(f"Error accediendo al contenido: {e}")
+                        continue
+            
+            return {"detail": "No se encontró contenido de texto en la respuesta"}
+            
         else:
-            return {"status": run.status, "detail": "El agente no pudo completar la tarea"}
+            return {
+                "status": str(run.status), 
+                "agent_id": agent_id,
+                "detail": f"Estado no completado: {run.status}"
+            }
             
     except Exception as e:
+        print(f"Error técnico real: {type(e).__name__} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+        #agents.delete_aget(shrmy-id) elimina el agente
+        #agents.thread
