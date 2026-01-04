@@ -47,7 +47,7 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_AI_FOUNDRY_ENDPOINT: ${{ secrets.AZURE_AI_FOUNDRY_ENDPOINT }}
-          MODEL_DEPLOYMENT_NAME: "gpt-4o-mini"
+          MODEL_DEPLOYMENT_NAME: "gpt-4.1-mini"
         run: |
           python -m uvicorn app:app --host 0.0.0.0 --port 8000 &
           sleep 10 # Tiempo para que el backend conecte con Azure
