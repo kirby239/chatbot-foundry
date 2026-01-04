@@ -10,8 +10,7 @@ load_dotenv()
 app = FastAPI(title="Azure AI Foundry Agent API")
 
 PROJECT_ENDPOINT = os.getenv("AZURE_AI_FOUNDRY_ENDPOINT")
-MODEL_DEPLOYMENT = os.getenv("MODEL_DEPLOYMENT_NAME")
-
+MODEL_DEPLOYMENT = os.getenv("MODEL_DEPLOYMENT_NAME", "gpt-4.1-mini")
 credential = DefaultAzureCredential()
 project_client = AIProjectClient(endpoint=PROJECT_ENDPOINT, credential=credential)
 
@@ -32,7 +31,7 @@ async def create_agent(req: AgentRequest):
             name=req.name,
             instructions=req.instructions
         )
-        return {"id": agent.id, "name": agent.name, "status": "created"}
+        return {"id": agent.id, "name": agent.name, "instrucciones":agent.instructions, "status": "created"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
