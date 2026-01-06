@@ -1,11 +1,22 @@
 import os
+import logging
 from fastapi import FastAPI, HTTPException
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
 from pydantic import BaseModel
 from dotenv import load_dotenv
-
+from azure.monitor.opentelemetry import configure_azure_monitor
 load_dotenv()
+#crear en el  Application Insights de Azure y copiar la Connection string
+conn_string = os.getenv("APPLICATION_INSIGHTS_CONNECTION_STRING")
+
+configure_azure_monitor(connection_string=conn_string)
+
+# AÑADE ESTO PARA TESTEAR
+logger = logging.getLogger("azure.monitor.test")
+logger.setLevel(logging.INFO)
+print("Enviando señal de vida a Azure Monitor...")
+logger.info("Iniciando monitoreo del Agente IA")
 
 app = FastAPI(title="Azure AI Foundry Agent API")
 

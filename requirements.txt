@@ -5,3 +5,4 @@ azure-identity
 python-dotenv
 pydantic
 requests
+azure-monitor-opentelemetry
