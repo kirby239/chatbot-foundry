@@ -5,4 +5,8 @@ azure-identity
 python-dotenv
 pydantic
 requests
-azure-monitor-opentelemetry
+
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+langfuse
+azure-core-tracing-opentelemetry

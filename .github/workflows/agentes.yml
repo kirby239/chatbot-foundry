@@ -47,6 +47,9 @@ jobs:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_AI_FOUNDRY_ENDPOINT: ${{ secrets.AZURE_AI_FOUNDRY_ENDPOINT }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
           MODEL_DEPLOYMENT_NAME: "gpt-4.1-mini"
         run: |
           python -m uvicorn app:app --host 0.0.0.0 --port 8000 &
@@ -57,18 +60,21 @@ jobs:
           ACTION="${{ github.event.inputs.action_type }}"
           
           if [ "$ACTION" == "crear" ]; then
-            echo "Creando agente: ${{ github.event.inputs.agent_name }}"
+            echo "🛠️ Creando agente: ${{ github.event.inputs.agent_name }}"
             curl -s -X POST http://localhost:8000/agents \
               -H "Content-Type: application/json" \
               -d '{"name": "${{ github.event.inputs.agent_name }}", "instructions": "${{ github.event.inputs.instructions }}" }' | jq .
 
           elif [ "$ACTION" == "listar" ]; then
-            echo "Listando agentes..."
-            curl -s http://localhost:8000/agents | jq .
+            echo "📋 Listando agentes..."
+            curl -s http://localhost:8000/list-agents | jq .
 
           elif [ "$ACTION" == "preguntar" ]; then
-            echo "Enviando prompt a: ${{ github.event.inputs.agent_id }}"
+            echo "💬 Enviando prompt a: ${{ github.event.inputs.agent_id }}"
             curl -s -X POST "http://localhost:8000/agents/${{ github.event.inputs.agent_id }}/prompt" \
               -H "Content-Type: application/json" \
               -d '{"prompt": "${{ github.event.inputs.prompt_text }}"}' | jq .
           fi
+
+          echo "⏳ Sincronizando trazas con Langfuse..."
+          sleep 10
