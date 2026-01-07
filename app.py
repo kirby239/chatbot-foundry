@@ -1,6 +1,7 @@
 import os
 import base64
 import logging
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -15,7 +16,7 @@ from azure.core.settings import settings
 # --- IMPORTACIONES DE AZURE ---
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
-
+import azure.ai.projects.models as models
 load_dotenv()
 
 # --- SDK de Azure a usar el puente de OpenTelemetry ---
@@ -54,6 +55,7 @@ project_client = AIProjectClient(endpoint=PROJECT_ENDPOINT, credential=credentia
 class AgentRequest(BaseModel):
     name: str
     instructions: str
+    file_path: Optional[str] = None
 
 class PromptRequest(BaseModel):
     prompt: str
@@ -64,12 +66,49 @@ class PromptRequest(BaseModel):
 async def create_agent(req: AgentRequest):
     with tracer.start_as_current_span("Foundry_Create_Agent") as span:
         try:
+            tools = []
+            tool_resources = None
+
+            # SI EL USUARIO MANDA UN ARCHIVO, CONFIGURAMOS EL CONOCIMIENTO
+            if req.file_path:
+                print("file" , req.file_path)
+                
+                if not os.path.exists(req.file_path):
+                    raise HTTPException(status_code=400, detail=f"Archivo no encontrado: {req.file_path}")
+                
+                # 1. Subir el archivo .md
+                uploaded_file = project_client.agents.files.upload(
+                    file_path=req.file_path,
+                    purpose="assistants"
+                )
+                print("uploaded_file",uploaded_file)
+
+                # 2. Crear el Vector Store para que el agente pueda "leer" el contenido
+                vector_store = project_client.agents.vector_stores.create(
+                    file_ids=[uploaded_file.id], 
+                    name=f"vs_{req.name}"
+                )
+                print("vector_store", vector_store)
+                # 3. Preparar la herramienta de búsqueda
+                try:
+                    from azure.ai.projects.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
+                except ImportError:
+                    from azure.ai.agents.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
+
+                tools = [FileSearchToolDefinition()]
+                tool_resources = ToolResources(
+                    file_search=FileSearchToolResource(vector_store_ids=[vector_store.id])
+                )
+            # CREACIÓN DEL AGENTE (con o sin herramientas dependiendo del 'if')
+
             agent = project_client.agents.create_agent(
                 model=MODEL_DEPLOYMENT,
                 name=req.name,
-                instructions=req.instructions
+                instructions=req.instructions,
+                tools=tools,
+                tool_resources=tool_resources
             )
-            return {"id": agent.id, "name": agent.name, "instrucciones":agent.instructions, "status": "created"}
+            return {"id": agent.id, "name": agent.name, "instrucciones":agent.instructions,"has_knowledge": req.file_path is not None, "status": "created"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 

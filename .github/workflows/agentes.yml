@@ -18,12 +18,16 @@ on:
       instructions:
         description: 'Instrucciones del agente (solo para crear)'
         required: false
-      prompt_text:
-        description: 'Tu mensaje para el agente (solo para preguntar)'
+      file_path:
+        description: 'File Path del Archivo Tools (solo para crear)'
         required: false
       agent_id:
         description: 'ID del agente (solo para preguntar)'
         required: false
+      prompt_text:
+        description: 'Tu mensaje para el agente (solo para preguntar)'
+        required: false
+
 
 jobs:
   execute-api-action:
@@ -60,10 +64,21 @@ jobs:
           ACTION="${{ github.event.inputs.action_type }}"
           
           if [ "$ACTION" == "crear" ]; then
-            echo "🛠️ Creando agente: ${{ github.event.inputs.agent_name }}"
+            # Construimos el JSON dinámicamente para manejar el file_path opcional
+            NAME="${{ github.event.inputs.agent_name }}"
+            INST="${{ github.event.inputs.instructions }}"
+            FILE="${{ github.event.inputs.file_path }}"
+            
+            # Usamos jq para construir un JSON válido y seguro
+            JSON_DATA=$(jq -n \
+              --arg nm "$NAME" \
+              --arg ins "$INST" \
+              --arg fp "$FILE" \
+              '{name: $nm, instructions: $ins, file_path: (if $fp == "" then null else $fp end)}')
+
             curl -s -X POST http://localhost:8000/agents \
               -H "Content-Type: application/json" \
-              -d '{"name": "${{ github.event.inputs.agent_name }}", "instructions": "${{ github.event.inputs.instructions }}" }' | jq .
+              -d "$JSON_DATA" | jq .
 
           elif [ "$ACTION" == "listar" ]; then
             echo "📋 Listando agentes..."
