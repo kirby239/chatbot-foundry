@@ -131,7 +131,6 @@ async def create_agent(
                 temp_path = os.path.join(os.getcwd(), file.filename)
                 with open(temp_path, "wb") as buffer:
                     shutil.copyfileobj(file.file, buffer)
-                
                 print(f"✅ Archivo guardado temporalmente en el repo: {temp_path}")
 
                 # 2. Subir a Azure AI Foundry
