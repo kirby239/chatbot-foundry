@@ -5,6 +5,7 @@ azure-identity
 python-dotenv
 pydantic
 requests
+python-multipart
 
 opentelemetry-sdk
 opentelemetry-exporter-otlp

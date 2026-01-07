@@ -64,22 +64,14 @@ jobs:
           ACTION="${{ github.event.inputs.action_type }}"
           
           if [ "$ACTION" == "crear" ]; then
-            # Construimos el JSON dinámicamente para manejar el file_path opcional
-            NAME="${{ github.event.inputs.agent_name }}"
-            INST="${{ github.event.inputs.instructions }}"
-            FILE="${{ github.event.inputs.file_path }}"
-            
-            # Usamos jq para construir un JSON válido y seguro
-            JSON_DATA=$(jq -n \
-              --arg nm "$NAME" \
-              --arg ins "$INST" \
-              --arg fp "$FILE" \
-              '{name: $nm, instructions: $ins, file_path: (if $fp == "" then null else $fp end)}')
+            echo "🛠️ Creando agente: ${{ github.event.inputs.agent_name }}"
 
+            # Usamos -F (form-data) en lugar de -d (json)
             curl -s -X POST http://localhost:8000/agents \
-              -H "Content-Type: application/json" \
-              -d "$JSON_DATA" | jq .
-
+              -F "name=${{ github.event.inputs.agent_name }}" \
+              -F "instructions=${{ github.event.inputs.instructions }}" \
+              -F "file=@${{ github.event.inputs.file_path }}" | jq .
+              
           elif [ "$ACTION" == "listar" ]; then
             echo "📋 Listando agentes..."
             curl -s http://localhost:8000/list-agents | jq .

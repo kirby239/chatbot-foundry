@@ -1,6 +1,8 @@
 import os
 import base64
 import logging
+import shutil
+from fastapi import UploadFile, File, Form
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -55,63 +57,132 @@ project_client = AIProjectClient(endpoint=PROJECT_ENDPOINT, credential=credentia
 class AgentRequest(BaseModel):
     name: str
     instructions: str
-    file_path: Optional[str] = None
+    file: UploadFile = File(None)
 
 class PromptRequest(BaseModel):
     prompt: str
 
 # --- ENDPOINTS ---
 
-@app.post("/agents", summary="Crear un nuevo agente")
-async def create_agent(req: AgentRequest):
+# @app.post("/agents", summary="Crear un nuevo agente")
+# async def create_agent(req: AgentRequest):
+#     with tracer.start_as_current_span("Foundry_Create_Agent") as span:
+#         try:
+#             tools = []
+#             tool_resources = None
+
+#             # SI EL USUARIO MANDA UN ARCHIVO, CONFIGURAMOS EL CONOCIMIENTO
+#             if req.file_path:
+#                 print("file" , req.file_path)
+                
+#                 if not os.path.exists(req.file_path):
+#                     raise HTTPException(status_code=400, detail=f"Archivo no encontrado: {req.file_path}")
+                
+#                 # 1. Subir el archivo .md
+#                 uploaded_file = project_client.agents.files.upload(
+#                     file_path=req.file_path,
+#                     purpose="assistants"
+#                 )
+#                 print("uploaded_file",uploaded_file)
+
+#                 # 2. Crear el Vector Store para que el agente pueda "leer" el contenido
+#                 vector_store = project_client.agents.vector_stores.create(
+#                     file_ids=[uploaded_file.id], 
+#                     name=f"vs_{req.name}"
+#                 )
+#                 print("vector_store", vector_store)
+#                 # 3. Preparar la herramienta de búsqueda
+#                 try:
+#                     from azure.ai.projects.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
+#                 except ImportError:
+#                     from azure.ai.agents.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
+
+#                 tools = [FileSearchToolDefinition()]
+#                 tool_resources = ToolResources(
+#                     file_search=FileSearchToolResource(vector_store_ids=[vector_store.id])
+#                 )
+#             # CREACIÓN DEL AGENTE (con o sin herramientas dependiendo del 'if')
+
+#             agent = project_client.agents.create_agent(
+#                 model=MODEL_DEPLOYMENT,
+#                 name=req.name,
+#                 instructions=req.instructions,
+#                 tools=tools,
+#                 tool_resources=tool_resources
+#             )
+#             return {"id": agent.id, "name": agent.name, "instrucciones":agent.instructions,"has_knowledge": req.file_path is not None, "status": "created"}
+#         except Exception as e:
+#             raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/agents", summary="Crear un nuevo agente con archivo automático")
+async def create_agent(
+    name: str = Form(...),              # Ahora usamos Form porque enviamos archivos
+    instructions: str = Form(...),
+    file: UploadFile = File(None)       # El archivo real que viene de Postman
+):
     with tracer.start_as_current_span("Foundry_Create_Agent") as span:
+        temp_path = None
         try:
             tools = []
             tool_resources = None
 
-            # SI EL USUARIO MANDA UN ARCHIVO, CONFIGURAMOS EL CONOCIMIENTO
-            if req.file_path:
-                print("file" , req.file_path)
+            # 1. Si el usuario envió un archivo, lo guardamos localmente en el repo
+            if file:
+                temp_path = os.path.join(os.getcwd(), file.filename)
+                with open(temp_path, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
                 
-                if not os.path.exists(req.file_path):
-                    raise HTTPException(status_code=400, detail=f"Archivo no encontrado: {req.file_path}")
-                
-                # 1. Subir el archivo .md
+                print(f"✅ Archivo guardado temporalmente en el repo: {temp_path}")
+
+                # 2. Subir a Azure AI Foundry
                 uploaded_file = project_client.agents.files.upload(
-                    file_path=req.file_path,
+                    file_path=temp_path,
                     purpose="assistants"
                 )
-                print("uploaded_file",uploaded_file)
 
-                # 2. Crear el Vector Store para que el agente pueda "leer" el contenido
+                # 3. Crear Vector Store
                 vector_store = project_client.agents.vector_stores.create(
                     file_ids=[uploaded_file.id], 
-                    name=f"vs_{req.name}"
+                    name=f"vs_{name}"
                 )
-                print("vector_store", vector_store)
-                # 3. Preparar la herramienta de búsqueda
-                try:
-                    from azure.ai.projects.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
-                except ImportError:
-                    from azure.ai.agents.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
 
+                # 4. Importar clases oficiales (Versión 1.0.0+)
+                try:
+                     from azure.ai.projects.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
+                except ImportError:
+                     from azure.ai.agents.models import FileSearchToolDefinition, ToolResources, FileSearchToolResource
                 tools = [FileSearchToolDefinition()]
                 tool_resources = ToolResources(
-                    file_search=FileSearchToolResource(vector_store_ids=[vector_store.id])
-                )
-            # CREACIÓN DEL AGENTE (con o sin herramientas dependiendo del 'if')
+                     file_search=FileSearchToolResource(vector_store_ids=[vector_store.id])
+                 )
 
+            # 5. CREACIÓN DEL AGENTE
             agent = project_client.agents.create_agent(
                 model=MODEL_DEPLOYMENT,
-                name=req.name,
-                instructions=req.instructions,
+                name=name,
+                instructions=instructions,
                 tools=tools,
                 tool_resources=tool_resources
             )
-            return {"id": agent.id, "name": agent.name, "instrucciones":agent.instructions,"has_knowledge": req.file_path is not None, "status": "created"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
 
+            # 6. ÉXITO (200 OK): Borramos el archivo del repo
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+                print(f"🗑️ Proceso exitoso: Archivo {file.filename} eliminado del repo.")
+
+            return {
+                "id": agent.id, 
+                "name": agent.name, 
+                "status": "created",
+                "file_processed": file.filename if file else None
+            }
+
+        except Exception as e:
+            # En caso de error, también intentamos limpiar para no dejar basura
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise HTTPException(status_code=500, detail=str(e))
+        
 @app.get("/list-agents", summary="Listar todos los agentes")
 async def list_agents():
     try:
