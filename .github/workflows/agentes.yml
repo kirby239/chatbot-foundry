@@ -32,9 +32,14 @@ on:
 jobs:
   execute-api-action:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configurar Python
         uses: actions/setup-python@v4
@@ -57,32 +62,75 @@ jobs:
           MODEL_DEPLOYMENT_NAME: "gpt-4.1-mini"
         run: |
           python -m uvicorn app:app --host 0.0.0.0 --port 8000 &
-          sleep 10 # Tiempo para que el backend conecte con Azure
-
-      - name: Ejecutar Acción Seleccionada
+          sleep 12 # Tiempo para que el backend conecte con Azure
+      
+      - name: Ejecutar Listar Agents
+        if: github.event.inputs.action_type == 'listar'
         run: |
-          ACTION="${{ github.event.inputs.action_type }}"
+          echo "📋 Listando agentes..."
+          curl -s http://localhost:8000/list-agents | jq .
           
-          if [ "$ACTION" == "crear" ]; then
-            echo "🛠️ Creando agente: ${{ github.event.inputs.agent_name }}"
+          echo "⏳ Sincronizando trazas con Langfuse..."
+          sleep 5
 
-            # Usamos -F (form-data) en lugar de -d (json)
-            
-            curl -s -X POST http://localhost:8000/agents \
-              -F "name=${{ github.event.inputs.agent_name }}" \
-              -F "instructions=${{ github.event.inputs.instructions }}" \
-              -F "file=@${{ github.event.inputs.file_path }}" | jq .
-
-          elif [ "$ACTION" == "listar" ]; then
-            echo "📋 Listando agentes..."
-            curl -s http://localhost:8000/list-agents | jq .
-
-          elif [ "$ACTION" == "preguntar" ]; then
-            echo "💬 Enviando prompt a: ${{ github.event.inputs.agent_id }}"
-            curl -s -X POST "http://localhost:8000/agents/${{ github.event.inputs.agent_id }}/prompt" \
-              -H "Content-Type: application/json" \
-              -d '{"prompt": "${{ github.event.inputs.prompt_text }}"}' | jq .
+      - name: Ejecutar Creacion
+        if: github.event.inputs.action_type == 'crear'
+        run: |
+          echo "🛠️ Creando agente: ${{ github.event.inputs.agent_name }}"
+          
+          FILE_NAME="${{ github.event.inputs.file_path }}"
+          
+          if [ -z "$FILE_NAME" ]; then
+              # Caso sin archivo
+              curl -s -X POST http://localhost:8000/agents \
+                -F "name=${{ github.event.inputs.agent_name }}" \
+                -F "instructions=${{ github.event.inputs.instructions }}" | jq .
+          else
+              # Caso con archivo dentro de /upload
+              FULL_PATH="./upload/$FILE_NAME"
+              if [ -f "$FULL_PATH" ]; then
+                  echo "📁 Archivo encontrado: $FULL_PATH"
+                  RESPONSE=$(curl -s -X POST http://localhost:8000/agents \
+                    -F "name=${{ github.event.inputs.agent_name }}" \
+                    -F "instructions=${{ github.event.inputs.instructions }}" \
+                    -F "file=@$FULL_PATH")
+                  
+                  echo "$RESPONSE" | jq .
+                  
+                  # Si la respuesta es exitosa (contiene id), marcamos para borrar
+                  if echo "$RESPONSE" | grep -q "id"; then
+                    echo "DELETE_FROM_REPO=true" >> $GITHUB_ENV
+                    echo "FILE_TO_DELETE=$FULL_PATH" >> $GITHUB_ENV
+                  fi
+              else
+                  echo "❌ Error: El archivo $FULL_PATH no existe en la carpeta upload/."
+                  exit 1
+              fi
           fi
+          
+          echo "⏳ Sincronizando trazas con Langfuse..."
+          sleep 5
+
+      - name: Ejecutar Conversacion Agent Id
+        if: github.event.inputs.action_type == 'preguntar'
+        run: |
+          echo "💬 Enviando prompt a: ${{ github.event.inputs.agent_id }}"
+          curl -s -X POST "http://localhost:8000/agents/${{ github.event.inputs.agent_id }}/prompt" \
+            -H "Content-Type: application/json" \
+            -d '{"prompt": "${{ github.event.inputs.prompt_text }}"}' | jq .
 
           echo "⏳ Sincronizando trazas con Langfuse..."
           sleep 10
+
+      - name: Limpiar Archivo del Repositorio Real
+        if: env.DELETE_FROM_REPO == 'true'
+        run: |
+          echo "🧹 Iniciando limpieza en el repositorio..."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # El archivo debe eliminarse de git
+          git rm "${{ env.FILE_TO_DELETE }}"
+          git commit -m "cleanup: eliminar archivo procesado ${{ env.FILE_TO_DELETE }}"
+          git push origin ${{ github.ref_name }}
+          echo "✅ Archivo eliminado del repositorio permanentemente."

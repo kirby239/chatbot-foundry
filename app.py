@@ -122,13 +122,20 @@ async def create_agent(
 ):
     with tracer.start_as_current_span("Foundry_Create_Agent") as span:
         temp_path = None
+        upload_dir = os.path.join(os.getcwd(), "upload")
         try:
             tools = []
             tool_resources = None
 
             # 1. Si el usuario envió un archivo, lo guardamos localmente en el repo
             if file:
-                temp_path = os.path.join(os.getcwd(), file.filename)
+                # Crear la carpeta upload si no existe
+                if not os.path.exists(upload_dir):
+                    os.makedirs(upload_dir)
+                
+                # Definir la ruta final dentro de /upload
+                temp_path = os.path.join(upload_dir, file.filename)
+                
                 with open(temp_path, "wb") as buffer:
                     shutil.copyfileobj(file.file, buffer)
                 print(f"✅ Archivo guardado temporalmente en el repo: {temp_path}")
